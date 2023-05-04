@@ -187,6 +187,7 @@ class UniformReplayBuffer(ReplayBuffer):
         self._extra_replay_elements = extra_replay_elements
 
         self._storage_signature, self._obs_signature = self.get_storage_signature()
+        
         self._create_storage()
 
         self._lock = Lock()
@@ -332,6 +333,17 @@ class UniformReplayBuffer(ReplayBuffer):
                 term = self._store[TERMINAL]
                 term[cursor] = kwargs[TERMINAL]
                 self._store[TERMINAL] = term
+                # import ipdb; ipdb.set_trace()
+
+                ## reduce size
+                for k, v in kwargs.items():
+                    try:
+                        if 'float' in v.dtype.name and v.size > 100:
+                            v = v.astype(np.float16)
+                            kwargs[k] = v
+                    except:
+                        pass
+
                 with open(join(self._save_dir, '%d.replay' % cursor), 'wb') as f:
                     pickle.dump(kwargs, f)
                 # If first add, then pad for correct wrapping
@@ -747,6 +759,7 @@ class UniformReplayBuffer(ReplayBuffer):
             batch_arrays = self.unpack_transition(
                 batch_arrays, transition_elements)
 
+        ## debug: why tho? why discard task names
         # TODO(Mohit): proper fix to discard task names
         if 'task' in batch_arrays:
             del batch_arrays['task']

@@ -68,9 +68,12 @@ class LogWriter(object):
                             summary.name, v, i, fps=summary.fps)
                     elif isinstance(summary, TextSummary):
                         self._tf_writer.add_text(summary.name, summary.value, i)
-            except Exception as e:
+            except:
+                # import ipdb; ipdb.set_trace()
                 logging.error('Error on summary: %s' % summary.name)
-                raise e
+            # except Exception as e:
+            #     logging.error('Error on summary: %s' % summary.name)
+            #     raise e
 
     def end_iteration(self):
         # write train data

@@ -22,10 +22,16 @@ class TaskUniformReplayBuffer(UniformReplayBuffer):
     A uniform with uniform task sampling for each batch
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, 
+                task_idxs: dict = None,
+                store_terminal: dict = None,
+                add_count: int = None,
+                *args, **kwargs):
         """Initializes OutOfGraphPrioritizedReplayBuffer."""
         super(TaskUniformReplayBuffer, self).__init__(*args, **kwargs)
-        self._task_idxs = dict()
+        self._task_idxs = task_idxs if task_idxs != None else dict()
+        self._store = store_terminal if store_terminal != None else dict()
+        self._add_count.value = add_count if add_count != None else 0
 
     def _add(self, kwargs: dict):
         """Internal add method to add to the storage arrays.
@@ -40,6 +46,17 @@ class TaskUniformReplayBuffer(UniformReplayBuffer):
                 term = self._store[TERMINAL]
                 term[cursor] = kwargs[TERMINAL]
                 self._store[TERMINAL] = term
+
+                # import ipdb; ipdb.set_trace()
+
+                ## reduce size
+                for k, v in kwargs.items():
+                    try:
+                        if 'float' in v.dtype.name and v.size > 100:
+                            v = v.astype(np.float16)
+                            kwargs[k] = v
+                    except:
+                        pass
 
                 with open(join(self._save_dir, '%d.replay' % cursor), 'wb') as f:
                     pickle.dump(kwargs, f)
@@ -78,8 +95,7 @@ class TaskUniformReplayBuffer(UniformReplayBuffer):
             tries.
         """
         if self.is_full():
-            min_id = (self.cursor() - self._replay_capacity +
-                      self._timesteps - 1)
+            min_id = (self.cursor() - self._replay_capacity + self._timesteps - 1)
             max_id = self.cursor() - self._update_horizon
         else:
             min_id = 0
@@ -93,6 +109,8 @@ class TaskUniformReplayBuffer(UniformReplayBuffer):
         tasks = list(self._task_idxs.keys())
         attempt_count = 0
         found_indicies = False
+
+        # import ipdb; ipdb.set_trace()
 
         # uniform distribution of tasks
         while not found_indicies and attempt_count < 1000:

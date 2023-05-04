@@ -18,6 +18,7 @@ import pandas as pd
 from yarr.agents.agent import Agent
 from yarr.replay_buffer.wrappers.pytorch_replay_buffer import \
     PyTorchReplayBuffer
+from yarr.replay_buffer.replay_buffer import ReplayElement, ReplayBuffer
 from yarr.runners.env_runner import EnvRunner
 from yarr.runners.train_runner import TrainRunner
 from yarr.utils.log_writer import LogWriter
@@ -43,7 +44,8 @@ class OfflineTrainRunner():
                  csv_logging: bool = False,
                  load_existing_weights: bool = True,
                  rank: int = None,
-                 world_size: int = None):
+                 world_size: int = None,
+                 replay_buffer: ReplayBuffer = None):
         self._agent = agent
         self._wrapped_buffer = wrapped_replay_buffer
         self._stat_accumulator = stat_accumulator
@@ -62,6 +64,8 @@ class OfflineTrainRunner():
         self._load_existing_weights = load_existing_weights
         self._rank = rank
         self._world_size = world_size
+
+        self._replay_buffer = replay_buffer
 
         self._writer = None
         if logdir is None:
@@ -82,15 +86,20 @@ class OfflineTrainRunner():
         self._agent.save_weights(d)
 
         # remove oldest save
-        prev_dir = os.path.join(self._weightsdir, str(
-            i - self._save_freq * self._num_weights_to_keep))
-        if os.path.exists(prev_dir):
-            shutil.rmtree(prev_dir)
+        # prev_dir = os.path.join(self._weightsdir, str(
+        #     i - self._save_freq * self._num_weights_to_keep))
+        # if os.path.exists(prev_dir):
+        #     shutil.rmtree(prev_dir)
 
     def _step(self, i, sampled_batch):
         update_dict = self._agent.update(i, sampled_batch)
         total_losses = update_dict['total_losses'].item()
         return total_losses
+    
+    def _generate(self, i, sampled_batch, replay_buffer):
+        update_dict = self._agent.generate(i, sampled_batch, replay_buffer)
+        # total_losses = update_dict['total_losses'].item()
+        # return total_losses
 
     def _get_resume_eval_epoch(self):
         starting_epoch = 0
@@ -104,27 +113,34 @@ class OfflineTrainRunner():
 
     def start(self):
         logging.getLogger().setLevel(self._logging_level)
-        self._agent = copy.deepcopy(self._agent)
-        self._agent.build(training=True, device=self._train_device)
-
+        # self._agent = copy.deepcopy(self._agent)
+        # self._agent.build(training=True, device=self._train_device)
+        # to train from scratch
+        weightsdir = self._weightsdir
+        # self._weightsdir = "/home/ishika/peract_dir/peract/logs/multitask_10tasks10demos_64x64_noAug_withReconsx100_occupRGB/PERACT_BC/seed0/weights"
+        self._load_existing_weights = True
         if self._weightsdir is not None:
             existing_weights = sorted([int(f) for f in os.listdir(self._weightsdir)])
+            logging.info(f"existing weights {existing_weights}")
             if (not self._load_existing_weights) or len(existing_weights) == 0:
                 self._save_model(0)
                 start_iter = 0
             else:
                 resume_iteration = existing_weights[-1]
+                # resume_iteration = 80000 #existing_weights[-8]
                 self._agent.load_weights(os.path.join(self._weightsdir, str(resume_iteration)))
+                logging.info(f"weights loaded from iteration {resume_iteration}")
                 start_iter = resume_iteration + 1
                 if self._rank == 0:
                     logging.info(f"Resuming training from iteration {resume_iteration} ...")
-
+        self._weightsdir = weightsdir
         dataset = self._wrapped_buffer.dataset()
         data_iter = iter(dataset)
 
         process = psutil.Process(os.getpid())
         num_cpu = psutil.cpu_count()
 
+        
         for i in range(start_iter, self._iterations):
             log_iteration = i % self._log_freq == 0 and i > 0
 
@@ -143,7 +159,11 @@ class OfflineTrainRunner():
             if self._rank == 0:
                 if log_iteration and self._writer is not None:
                     agent_summaries = self._agent.update_summaries()
+                    # try:
                     self._writer.add_summaries(i, agent_summaries)
+                    # except:
+                    #     pass
+                    # import ipdb; ipdb.set_trace()
 
                     self._writer.add_scalar(
                         i, 'monitoring/memory_gb',
@@ -164,3 +184,79 @@ class OfflineTrainRunner():
             logging.info('Stopping envs ...')
 
             self._wrapped_buffer.replay_buffer.shutdown()
+
+
+    def generate_data(self):
+        logging.getLogger().setLevel(self._logging_level)
+        # self._agent = copy.deepcopy(self._agent)
+        # self._agent.build(training=True, device=self._train_device)
+        ## TODO: batch is current =1 for non training phase, add a generation phase
+        weightsdir = self._weightsdir
+        # self._weightsdir = "/home/ishika/peract_dir/peract/logs/single_open_drawer_64x64_noAug/PERACT_BC/seed0/weights"
+        
+        # debug
+        self._load_existing_weights = True
+        if self._weightsdir is not None:
+            existing_weights = sorted([int(f) for f in os.listdir(self._weightsdir)])
+            logging.info(f"existing weights {existing_weights}")
+            if (not self._load_existing_weights) or len(existing_weights) == 0:
+                self._save_model(0)
+                start_iter = 0
+            else:
+                resume_iteration = existing_weights[-5]
+                # import ipdb; ipdb.set_trace()
+                self._agent.load_weights(os.path.join(self._weightsdir, str(resume_iteration)))
+                logging.info(f"weights loaded from iteration {resume_iteration}")
+                start_iter = 0
+                # start_iter = resume_iteration + 1
+                if self._rank == 0:
+                    logging.info(f"Resuming training from iteration {resume_iteration} ...")
+        self._weightsdir = weightsdir
+        dataset = self._wrapped_buffer.dataset()
+        data_iter = iter(dataset)
+
+        process = psutil.Process(os.getpid())
+        num_cpu = psutil.cpu_count()
+
+        ##TODO: change iterations for generation
+        for i in range(start_iter, self._iterations):
+            log_iteration = i % self._log_freq == 0 and i > 0
+
+            if log_iteration:
+                process.cpu_percent(interval=None)
+
+            t = time.time()
+            sampled_batch = next(data_iter)
+            sample_time = time.time() - t
+
+            batch = {k: v.to(self._train_device) for k, v in sampled_batch.items() if type(v) == torch.Tensor}
+            t = time.time()
+            # logging.info(f"alright we are genrating stuff now...")
+            loss = self._generate(i, batch, self._replay_buffer)
+            step_time = time.time() - t
+
+            if self._rank == 0:
+                if log_iteration and self._writer is not None:
+                    # agent_summaries = self._agent.update_summaries()
+                    # import ipdb; ipdb.set_trace()
+                    # self._writer.add_summaries(i, agent_summaries)
+
+                    self._writer.add_scalar(
+                        i, 'monitoring/memory_gb',
+                        process.memory_info().rss * 1e-9)
+                    self._writer.add_scalar(
+                        i, 'monitoring/cpu_percent',
+                        process.cpu_percent(interval=None) / num_cpu)
+
+                    logging.info(f"Generate Step {i:06d} Sample time: {sample_time:0.6f} | Step time: {step_time:0.4f}.")
+
+                self._writer.end_iteration()
+
+                # if i % self._save_freq == 0 and self._weightsdir is not None:
+                #     self._save_model(i)
+
+        # if self._rank == 0 and self._writer is not None:
+        #     self._writer.close()
+        #     logging.info('Stopping envs ...')
+
+        #     self._wrapped_buffer.replay_buffer.shutdown()
