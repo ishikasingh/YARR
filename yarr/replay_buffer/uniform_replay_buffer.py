@@ -395,6 +395,9 @@ class UniformReplayBuffer(ReplayBuffer):
                     d = pickle.load(f)
                     for k, v in d.items():
                         store[k][idx] = v
+        for k, v in store['lang_goal_emb'].items():
+            if np.isnan(v)[0]:
+                import ipdb; ipdb.set_trace()
         return store
 
     def _check_add_types(self, kwargs, signature):
@@ -807,11 +810,12 @@ class UniformReplayBuffer(ReplayBuffer):
         return transition_elements
 
     def shutdown(self):
-        if self._purge_replay_on_shutdown:
-            # Safely delete replay
-            logging.info('Clearing disk replay buffer.')
-            for f in [f for f in os.listdir(self._save_dir) if '.replay' in f]:
-                os.remove(join(self._save_dir, f))
+        logging.info('NOT Clearing disk replay buffer.')
+        # if self._purge_replay_on_shutdown:
+        #     # Safely delete replay
+        #     logging.info('Clearing disk replay buffer.')
+        #     for f in [f for f in os.listdir(self._save_dir) if '.replay' in f]:
+        #         os.remove(join(self._save_dir, f))
 
     def using_disk(self):
         return self._disk_saving

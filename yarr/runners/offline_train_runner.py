@@ -113,12 +113,11 @@ class OfflineTrainRunner():
 
     def start(self):
         logging.getLogger().setLevel(self._logging_level)
-        # self._agent = copy.deepcopy(self._agent)
-        # self._agent.build(training=True, device=self._train_device)
+        self._agent = copy.deepcopy(self._agent)
+        self._agent.build(training=True, device=self._train_device)
         # to train from scratch
         weightsdir = self._weightsdir
-        # self._weightsdir = "/home/ishika/peract_dir/peract/logs/multitask_10tasks10demos_64x64_noAug_withReconsx100_occupRGB/PERACT_BC/seed0/weights"
-        self._load_existing_weights = True
+        # self._weightsdir = "/home/ishika/peract_dir/peract/logs_multitask_16tasks/PT_3D_rep_reconst_only/PERACT_BC/seed0/weights"
         if self._weightsdir is not None:
             existing_weights = sorted([int(f) for f in os.listdir(self._weightsdir)])
             logging.info(f"existing weights {existing_weights}")
@@ -127,7 +126,7 @@ class OfflineTrainRunner():
                 start_iter = 0
             else:
                 resume_iteration = existing_weights[-1]
-                # resume_iteration = 80000 #existing_weights[-8]
+                # resume_iteration = 60000 #existing_weights[-8]
                 self._agent.load_weights(os.path.join(self._weightsdir, str(resume_iteration)))
                 logging.info(f"weights loaded from iteration {resume_iteration}")
                 start_iter = resume_iteration + 1
@@ -141,7 +140,7 @@ class OfflineTrainRunner():
         num_cpu = psutil.cpu_count()
 
         
-        for i in range(start_iter, self._iterations):
+        for i in range(start_iter, self._iterations+1):
             log_iteration = i % self._log_freq == 0 and i > 0
 
             if log_iteration:

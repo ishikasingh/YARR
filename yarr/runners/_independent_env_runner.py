@@ -190,7 +190,7 @@ class _IndependentEnvRunner(_EnvRunner):
             for ep in range(self._eval_episodes):
                 eval_demo_seed = ep + self._eval_from_eps_number
                 logging.info('%s: Starting episode %d, seed %d.' % (name, ep, eval_demo_seed))
-
+                # import ipdb; ipdb.set_trace()
                 # the current task gets reset after every M episodes
                 episode_rollout = []
                 generator = self._rollout_generator.generator(
